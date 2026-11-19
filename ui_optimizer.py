@@ -109,7 +109,9 @@ def _progress(job: OptimizationJob, runs, model):
             compatible = plan_identity(job.plan) == model_identity(train, model)
             apply, view, download = st.columns(3)
             if apply.button("최적 PID 적용", type="primary", disabled=not compatible, width="stretch"):
-                st.session_state.applied_pid = AppliedPID.from_trial(job.plan, best)
+                st.session_state.applied_pid = AppliedPID.from_trial(
+                    job.plan, best, vessel_metadata=job.vessel_metadata,
+                )
                 st.session_state.scene_request = AI_PID
                 st.rerun()
             applied = st.session_state.get("applied_pid")
@@ -131,7 +133,7 @@ def _progress(job: OptimizationJob, runs, model):
     progress()
 
 
-def render_optimizer(runs, model):
+def render_optimizer(runs, model, *, vessel=None):
     train = runs["A"]
     st.subheader("AI 기반 PID 자동 최적화")
     st.caption("Optuna TPE가 A 구간을 반복 계산하고 목적함수 J가 가장 낮은 조합을 찾습니다.")
@@ -148,7 +150,7 @@ def render_optimizer(runs, model):
     with start_col:
         if st.button("최적화 시작", key="start_study", type="primary", disabled=busy or plan is None,
                      width="stretch"):
-            new_job = OptimizationJob(plan)
+            new_job = OptimizationJob(plan, vessel_metadata=vessel.manifest() if vessel is not None else None)
             new_job.start(total)
             st.session_state.optimization_job = new_job
             st.rerun()

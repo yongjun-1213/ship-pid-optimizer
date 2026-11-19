@@ -8,6 +8,8 @@ import streamlit as st
 from motor_model import MotorAxis, MotorParams
 from pid_controller import Gains, PIDSettings, TwoAxisPID
 from simulation import SensorParams
+from ui_vessel import VesselSelection
+from vessel_specs import VesselSpec, user_vessel_from_manifest
 
 
 @dataclass(frozen=True)
@@ -18,8 +20,11 @@ class ModelSettings:
     pid: PIDSettings = PIDSettings()
     enabled: bool = True
 
-    def to_bytes(self):
-        return json.dumps({"schema": 1, **asdict(self)}, ensure_ascii=False,
+    def to_bytes(self, vessel: VesselSpec | None = None):
+        data = {"schema": 1, **asdict(self)}
+        if vessel is not None:
+            data["vessel"] = vessel.manifest()
+        return json.dumps(data, ensure_ascii=False,
                           indent=2, allow_nan=False).encode("utf-8")
 
     @classmethod
@@ -68,7 +73,7 @@ def _gain_values(gains: Gains, key: str):
                    for i, (label, value) in enumerate(zip(labels, asdict(gains).values()))))
 
 
-def render_model():
+def render_model(selection: VesselSelection | None = None):
     model = st.session_state.model_settings
     rev = st.session_state.get("model_form_revision", 0)
     prefix = f"model_{rev}"
@@ -128,12 +133,19 @@ def render_model():
         except ValueError as error:
             st.error(str(error))
     with st.expander("설정 JSON 저장 또는 불러오기"):
-        st.download_button("현재 설정 JSON", model.to_bytes(), file_name="pid_model_settings.json",
+        vessel = selection.spec if selection is not None else None
+        st.download_button("현재 설정 JSON", model.to_bytes(vessel), file_name="pid_model_settings.json",
                            mime="application/json", on_click="ignore")
         saved = st.file_uploader("PID·모터 설정 파일", type=["json"], key="model_import")
         if saved is not None and st.button("파일 설정 적용"):
             try:
-                st.session_state.model_settings = ModelSettings.from_bytes(saved.getvalue())
+                payload = saved.getvalue()
+                settings = ModelSettings.from_bytes(payload)
+                if selection is not None:
+                    vessel = user_vessel_from_manifest(json.loads(payload).get("vessel"), selection.reference)
+                    if vessel is not None:
+                        selection.apply_import(vessel)
+                st.session_state.model_settings = settings
                 st.session_state.model_form_revision = rev + 1
                 st.rerun()
             except ValueError as error:

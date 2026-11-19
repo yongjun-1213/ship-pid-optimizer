@@ -119,8 +119,9 @@ def _run_path() -> Path:
 
 
 class OptimizationJob:
-    def __init__(self, plan: StudyPlan, path: Path | None = None):
+    def __init__(self, plan: StudyPlan, path: Path | None = None, *, vessel_metadata: dict | None = None):
         self.plan = plan
+        self.vessel_metadata = vessel_metadata
         self.path = path if path is not None else _run_path()
         self._lock = Lock()
         self._stop_requested = Event()
@@ -166,7 +167,7 @@ class OptimizationJob:
         return self._elapsed + (perf_counter() - self._started if self._started is not None else 0.0)
 
     def _checkpoint(self) -> dict:
-        return {
+        payload = {
             "schema": CHECKPOINT_VERSION,
             "optuna_version": optuna.__version__,
             "signature": self.plan.signature(),
@@ -177,6 +178,9 @@ class OptimizationJob:
             "records": [asdict(record) for record in self._records],
             "best": asdict(self._best) if self._best else None,
         }
+        if self.vessel_metadata is not None:
+            payload["vessel"] = self.vessel_metadata
+        return payload
 
     def checkpoint(self) -> bytes:
         with self._lock:
@@ -199,7 +203,12 @@ class OptimizationJob:
             if (saved["schema"] != CHECKPOINT_VERSION or saved["signature"] != plan.signature()
                     or saved["optuna_version"] != optuna.__version__):
                 raise ValueError("체크포인트의 학습 구간·설정 또는 Optuna 버전이 현재 실험과 다릅니다.")
-            job = cls(plan)
+            vessel = saved.get("vessel")
+            if vessel is not None:
+                if not isinstance(vessel, dict):
+                    raise ValueError("체크포인트의 선박 제원 형식이 올바르지 않습니다.")
+                _json(vessel)
+            job = cls(plan, vessel_metadata=vessel)
             if len(saved["records"]) > MAX_TRIALS:
                 raise ValueError("복원할 실험 기록 개수가 너무 많습니다.")
             elapsed = float(saved["elapsed_s"])

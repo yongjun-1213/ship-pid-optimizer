@@ -13,6 +13,7 @@ from pid_controller import TwoAxisPID
 from simulation import prepare_simulation, simulate
 from ui_data import EXPERIMENTS
 from ui_settings import ModelSettings
+from ui_vessel import default_vessel_for
 from visualization import AI_PID, AXES, MANUAL_PID, OFF, attitude_chart, motor_chart
 
 PLOT_CONFIG = {"displayModeBar": False, "scrollZoom": True}
@@ -29,8 +30,11 @@ class AppliedPID:
     identity: tuple
 
     @classmethod
-    def from_trial(cls, plan: StudyPlan, trial: TrialRecord):
-        return cls(plan.signature(), plan.metadata(), trial.number, trial.score,
+    def from_trial(cls, plan: StudyPlan, trial: TrialRecord, *, vessel_metadata: dict | None = None):
+        training = plan.metadata()
+        if vessel_metadata is not None:
+            training["vessel"] = vessel_metadata
+        return cls(plan.signature(), training, trial.number, trial.score,
                    decode_pid(trial.params, plan.mode), plan.weights, plan_identity(plan))
 
 
@@ -122,11 +126,14 @@ def _export_csv(results):
     return merged.to_csv(index=False).encode("utf-8-sig")
 
 
-def _export_json(exp, motion, data, model, results, applied):
+def _export_json(exp, motion, data, model, results, applied, *, vessel=None):
+    if vessel is None:
+        vessel = default_vessel_for(motion.window.source).spec
     weights = applied.weights if applied else ObjectiveWeights()
     payload = {
         "schema": 1,
         "experiment": exp,
+        "vessel": vessel.manifest(),
         "window": motion.window.manifest(),
         "simulation_duration_s": float(motion.time_s[-1]),
         "motion_kind": "synthetic" if data.wave else "attitude_record",
@@ -150,7 +157,7 @@ def _export_json(exp, motion, data, model, results, applied):
     return json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8")
 
 
-def render_performance(runs, sources, model, applied):
+def render_performance(runs, sources, model, applied, *, vessels=None):
     st.subheader("성능 분석")
     exp = experiment_picker(runs, "performance_experiment")
     motion = runs[exp]
@@ -185,6 +192,7 @@ def render_performance(runs, sources, model, applied):
     x, y = st.columns(2)
     x.download_button("시계열 CSV", _export_csv(results), file_name=f"stabilizer_{exp}_timeseries.csv",
                       mime="text/csv", on_click="ignore", width="stretch")
-    y.download_button("성능·설정 JSON", _export_json(exp, motion, sources[exp], model, results, applied),
+    vessel = vessels[exp].spec if vessels is not None else None
+    y.download_button("성능·설정 JSON", _export_json(exp, motion, sources[exp], model, results, applied, vessel=vessel),
                       file_name=f"stabilizer_{exp}_report.json", mime="application/json",
                       on_click="ignore", width="stretch")

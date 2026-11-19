@@ -59,19 +59,19 @@ if request := st.session_state.pop("nav_request", None):
 page = st.segmented_control("화면 선택", PAGES, default=PAGES[0], key="nav",
                             label_visibility="collapsed", on_change=pause_playback) or PAGES[0]
 with st.sidebar:
-    runs, sources = render_data()
+    runs, sources, vessels = render_data()
 
 model = st.session_state.model_settings
 if page == "PID 설정":
-    render_model()
+    render_model(vessels["A"])
 elif "A" not in runs:
     pause_playback()
     st.info("사이드바에서 운동 데이터를 불러오고 실험 A 구간을 지정해 주세요.")
 else:
     applied = applied_for(runs["A"], model)
     if page == "3D 시뮬레이션":
-        render_scene(runs, model, applied, st.session_state.get("sea", "보통 파도"))
+        render_scene(runs, model, applied, st.session_state.get("sea", "보통 파도"), vessels=vessels)
     elif page == "AI 자동 최적화":
-        render_optimizer(runs, model)
+        render_optimizer(runs, model, vessel=vessels["A"].spec)
     elif page == "성능 분석":
-        render_performance(runs, sources, model, applied)
+        render_performance(runs, sources, model, applied, vessels=vessels)

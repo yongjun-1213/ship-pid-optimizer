@@ -11,6 +11,7 @@ from data_loader import (ACE, GUNNERUS, SOURCE_FILES, SOURCE_LINKS, UPLOAD, VIRT
                          read_csv, resample_window, source_bytes, validate_holdouts,
                          source_mapping)
 from ship_model import SEA_STATES, virtual_motion
+from ui_vessel import default_vessel_for, render_vessel_info, show_particulars
 
 EXPERIMENTS = {
     "A": "A · 학습",
@@ -125,7 +126,7 @@ def _quality_panel(data: MotionData, raw: bytes | None, key: str):
         st.caption(f"{q.max_gap:.3g}초 이하의 공백만 선택 범위 내에서 보간합니다.")
 
 
-def _source_data(source: str, key: str, sea: str, *, options: bool) -> MotionData | None:
+def _source_data(source: str, key: str, sea: str, *, options: bool, upload=None) -> MotionData | None:
     if source == VIRTUAL:
         result = _virtual(sea)
         _quality_panel(result, None, key)
@@ -133,8 +134,6 @@ def _source_data(source: str, key: str, sea: str, *, options: bool) -> MotionDat
         return result
     try:
         if source == UPLOAD:
-            upload = st.file_uploader("자세 파일 선택", type=["csv", "gz", "txt"], key=f"{key}_upload",
-                                      help="CSV, CSV.GZ 또는 쉼표로 구분된 HYDRINS 일별 TXT 파일")
             if upload is None:
                 st.info("시간, Roll, Pitch가 포함된 CSV 또는 CSV.GZ 파일을 올려 주세요.")
                 return None
@@ -225,11 +224,18 @@ def _window(data: MotionData, exp: str, dt: float, method: str, external=False):
 def render_data():
     st.header("선박 운동 데이터")
     source = st.selectbox("자세 입력", SOURCE_OPTIONS, format_func=SOURCE_LABELS.get, key="source_picker")
+    key = "primary_" + str(SOURCE_OPTIONS.index(source))
+    upload = None
+    if source == UPLOAD:
+        upload = st.file_uploader("자세 파일 선택", type=["csv", "gz", "txt"], key=f"{key}_upload",
+                                  help="CSV, CSV.GZ 또는 쉼표로 구분된 HYDRINS 일별 TXT 파일")
+    vessel = render_vessel_info(source, upload)
+    vessels = {"A": vessel}
     sea = st.selectbox("해상 시나리오" if source == VIRTUAL else "3D 가상 수면",
                        list(SEA_STATES), index=1, key="sea")
-    data = _source_data(source, "primary_" + str(SOURCE_OPTIONS.index(source)), sea, options=True)
+    data = _source_data(source, key, sea, options=True, upload=upload)
     if data is None:
-        return {}, {}
+        return {}, {}, vessels
     with st.expander("제어 주기와 보간"):
         dt = float(st.number_input("제어 주기 (초)", 0.005, 0.2, 0.02, 0.005, format="%.3f"))
         method = st.selectbox("보간", ("pchip", "linear"), format_func={"pchip": "PCHIP", "linear": "선형"}.get)
@@ -247,11 +253,14 @@ def render_data():
             if not enabled:
                 continue
             candidate = data
+            selected_vessel = vessel
             if exp == "C":
                 labels = {"local": "같은 기록의 다른 구간", **SOURCE_LABELS}
                 choice = st.radio("추가 검증 입력", ("local", *(name for name in (ACE, GUNNERUS) if name != source)),
                                       format_func=labels.get, key=f"external_{data.record_id[:14]}")
                 if choice != "local":
+                    selected_vessel = default_vessel_for(choice)
+                    show_particulars(selected_vessel.spec)
                     candidate = _source_data(choice, "extra_" + str(SOURCE_OPTIONS.index(choice)), sea, options=True)
             if candidate is None:
                 continue
@@ -261,6 +270,7 @@ def render_data():
                     validate_holdouts(runs["A"].window, *(run.window for code, run in runs.items() if code != "A"),
                                       window.window)
                     runs[exp], sources[exp] = window, candidate
+                    vessels[exp] = selected_vessel
                 except ValueError as error:
                     st.error(str(error))
-    return runs, sources
+    return runs, sources, vessels

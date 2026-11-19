@@ -68,10 +68,11 @@ def wave_components(sea: str, seed: int = 123):
     return 2 * np.pi * freqs, amps, rng.uniform(0, 2 * np.pi, count), angles, gain
 
 
-def ocean_surface(time_s: float, sea: str):
+def ocean_surface(time_s: float, sea: str, *, x_range=(-36.0, 36.0), y_range=(-23.0, 23.0)):
+    """Sample the same wave field over the visible area in world metres."""
     omega, amps, phase, direction, _ = wave_components(sea)
-    x = np.linspace(-36.0, 36.0, 43)
-    y = np.linspace(-23.0, 23.0, 32)
+    x = np.linspace(*x_range, int(np.clip(np.ceil((x_range[1] - x_range[0]) / 1.75), 43, 140)))
+    y = np.linspace(*y_range, int(np.clip(np.ceil((y_range[1] - y_range[0]) / 1.75), 32, 100)))
     xy = x[None, :, None] * np.cos(direction) + y[:, None, None] * np.sin(direction)
     height = np.cos(xy * (omega ** 2 / GRAVITY) - omega * time_s + phase) @ amps
     return x, y, height
